@@ -22,7 +22,7 @@ std::map<ImageMount::SMountId, size_t> ImageMount::mounted_images;
 IMutex* ImageMount::mounted_images_mutex;
 std::set<int> ImageMount::locked_images;
 IMutex* ImageMount::mount_processes_mutex;
-std::map<ImageMount::SMountId, THREADPOOL_TICKET> ImageMount::mount_processes;
+std::map<ImageMount::SMountId, ImageMount::SMountProcess> ImageMount::mount_processes;
 
 extern IFSImageFactory *image_fak;
 
@@ -397,11 +397,11 @@ void ImageMount::operator()()
 
 		{
 			IScopedLock lock(mount_processes_mutex);
-			for (std::map<SMountId, THREADPOOL_TICKET>::iterator it = mount_processes.begin();
+			for (std::map<SMountId, SMountProcess>::iterator it = mount_processes.begin();
 				it != mount_processes.end();)
 			{
-				std::map<SMountId, THREADPOOL_TICKET>::iterator it_curr = it++;
-				if (Server->getThreadPool()->waitFor(it_curr->second))
+				std::map<SMountId, SMountProcess>::iterator it_curr = it++;
+				if (Server->getThreadPool()->waitFor(it_curr->second.ticket))
 				{
 					mount_processes.erase(it_curr);
 				}
@@ -428,18 +428,17 @@ namespace
 	class MountImageThread : public IThread
 	{
 		int backupid;
-		std::string& errmsg;
 		int partition;
 	public:
-		MountImageThread(int backupid, int partition, std::string& errmsg)
-			: backupid(backupid), partition(partition), errmsg(errmsg)
+		MountImageThread(int backupid, int partition)
+			: backupid(backupid), partition(partition)
 		{
 
 		}
 
 		void operator()()
 		{
-			ImageMount::mount_image_thread(backupid, partition, errmsg);
+			ImageMount::mount_image_thread(backupid, partition);
 			delete this;
 		}
 	};
@@ -449,27 +448,31 @@ bool ImageMount::mount_image_int(int backupid, int partition, ScopedMountedImage
 	int64 timeoutms, bool& has_timeout, std::string& errmsg)
 {
 	IScopedLock lock(mount_processes_mutex);
-	std::map<SMountId, THREADPOOL_TICKET>::iterator it = mount_processes.find(SMountId(backupid, partition));
+	std::map<SMountId, SMountProcess>::iterator it = mount_processes.find(SMountId(backupid, partition));
 	THREADPOOL_TICKET ticket;
 	if (it != mount_processes.end())
 	{
-		ticket = it->second;
+		ticket = it->second.ticket;
 		lock.relock(NULL);
 	}
 	else
 	{
-		ticket = Server->getThreadPool()->execute(new MountImageThread(backupid, partition, errmsg), "mnt image");
-		mount_processes.insert(std::make_pair(SMountId(backupid, partition), ticket));
+		ticket = Server->getThreadPool()->execute(new MountImageThread(backupid, partition), "mnt image");
+		mount_processes.insert(std::make_pair(SMountId(backupid, partition), SMountProcess(ticket)));
 		lock.relock(NULL);
 	}
 
 	if (Server->getThreadPool()->waitFor(ticket, static_cast<int>(timeoutms)))
 	{
 		IScopedLock lock(mount_processes_mutex);
-		std::map<SMountId, THREADPOOL_TICKET>::iterator it = mount_processes.find(SMountId(backupid, partition) );
+		std::map<SMountId, SMountProcess>::iterator it = mount_processes.find(SMountId(backupid, partition) );
 		if (it != mount_processes.end()
-			&& it->second == ticket)
+			&& it->second.ticket == ticket)
 		{
+			if (!it->second.errmsg.empty())
+			{
+				errmsg = it->second.errmsg;
+			}
 			mount_processes.erase(it);
 		}
 		lock.relock(NULL);
@@ -517,7 +520,7 @@ std::string ImageMount::get_mount_path(int backupid, int clientid, int partition
 	bool has_mount_process = false;
 	{
 		IScopedLock lock(mount_processes_mutex);
-		std::map<SMountId, THREADPOOL_TICKET>::iterator it = mount_processes.find(SMountId(backupid, partition));
+		std::map<SMountId, SMountProcess>::iterator it = mount_processes.find(SMountId(backupid, partition));
 		has_mount_process = it != mount_processes.end();
 	}
 
@@ -725,8 +728,8 @@ void ImageMount::unlockImage(int backupid)
 	locked_images.erase(locked_images.find(backupid));
 }
 
-void ImageMount::mount_image_thread(int backupid, int partition, std::string& errmsg)
-{	
+void ImageMount::mount_image_thread(int backupid, int partition)
+{
 	IDatabase* db = Server->getDatabase(Server->getThreadID(), URBACKUPDB_SERVER);
 	ServerBackupDao backup_dao(db);
 
@@ -770,9 +773,20 @@ void ImageMount::mount_image_thread(int backupid, int partition, std::string& er
 	backup_dao.addImageMounted(backupid, partition);
 	int64 insert_id = db->getLastInsertID();
 
+	std::string errmsg;
 	if (!os_mount_image(image_inf.path, backupid, partition, sel_part, errmsg))
 	{
 		backup_dao.delImageMounted(insert_id);
+
+		/* The waiter in mount_image_int may already have given up (timeout),
+		   so the message is handed over via the shared map entry, never via
+		   a reference into the caller's stack. */
+		IScopedLock lock(mount_processes_mutex);
+		std::map<SMountId, SMountProcess>::iterator it = mount_processes.find(SMountId(backupid, partition));
+		if (it != mount_processes.end())
+		{
+			it->second.errmsg = errmsg;
+		}
 		return;
 	}
 }
