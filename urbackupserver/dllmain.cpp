@@ -2552,9 +2552,9 @@ bool upgrade69_70()
 	//predate this migration have it NULL and fall back to hashpath_stored, so the
 	//coalesce covers both eras without touching a single existing row.
 	return db->Write("ALTER TABLE files_db.files ADD COLUMN hashpath TEXT "
-		"GENERATED ALWAYS AS (COALESCE(NULLIF(hashpath_stored, ''), "
-		"substr(fullpath, 1, hashroot_len) || '" + sep + ".hashes' || "
-		"substr(fullpath, hashroot_len+1))) VIRTUAL");
+		"GENERATED ALWAYS AS (CASE WHEN hashroot_len > 0 THEN "
+		"substr(fullpath, 1, hashroot_len) || '" + sep + ".hashes' || substr(fullpath, hashroot_len+1) "
+		"ELSE hashpath_stored END) VIRTUAL");
 }
 
 void upgrade(void)
