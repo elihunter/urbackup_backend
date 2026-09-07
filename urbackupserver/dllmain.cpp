@@ -2526,6 +2526,37 @@ bool upgrade68_69()
 	return updateArchiveSettingsExternal(0, db);
 }
 
+bool upgrade69_70()
+{
+	IDatabase* db = Server->getDatabase(Server->getThreadID(), URBACKUPDB_SERVER);
+
+	//A file's hash path is its full path with the hash directory inserted after the
+	//backup root, so it does not have to be stored: keep the stored value for rows
+	//written before this and for the rare name escape_metadata_fn() rewrites, and
+	//derive everything else. At 120 bytes of a 355 byte row this is a third of the
+	//table, and of everything the table writes.
+	//
+	//Both statements are metadata-only in SQLite -- neither rewrites the table --
+	//which matters because files is by far the largest table on the server and
+	//rewriting it would cost more in one migration than the change saves in a year.
+	std::string sep = os_file_sep();
+	if (!db->Write("ALTER TABLE files_db.files RENAME COLUMN hashpath TO hashpath_stored"))
+	{
+		return false;
+	}
+	if (!db->Write("ALTER TABLE files_db.files ADD COLUMN hashroot_len INTEGER"))
+	{
+		return false;
+	}
+	//hashroot_len is the length of the backup root prefix of fullpath. Rows that
+	//predate this migration have it NULL and fall back to hashpath_stored, so the
+	//coalesce covers both eras without touching a single existing row.
+	return db->Write("ALTER TABLE files_db.files ADD COLUMN hashpath TEXT "
+		"GENERATED ALWAYS AS (COALESCE(NULLIF(hashpath_stored, ''), "
+		"substr(fullpath, 1, hashroot_len) || '" + sep + ".hashes' || "
+		"substr(fullpath, hashroot_len+1))) VIRTUAL");
+}
+
 void upgrade(void)
 {
 	Server->destroyAllDatabases();
@@ -2547,7 +2578,7 @@ void upgrade(void)
 	
 	int ver=watoi(res_v[0]["tvalue"]);
 	int old_v;
-	int max_v=69;
+	int max_v=70;
 	{
 		IScopedLock lock(startup_status.mutex);
 		startup_status.target_db_version=max_v;
@@ -2969,6 +3000,13 @@ void upgrade(void)
 				break;
 			case 68:
 				if (!upgrade68_69())
+				{
+					has_error = true;
+				}
+				++ver;
+				break;
+			case 69:
+				if (!upgrade69_70())
 				{
 					has_error = true;
 				}

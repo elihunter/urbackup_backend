@@ -18,8 +18,43 @@
 
 #include "ServerFilesDao.h"
 #include "../../stringtools.h"
+#include "../../urbackupcommon/os_functions.h"
 #include <assert.h>
 #include <string.h>
+
+namespace
+{
+	//The hash path of a file is its full path with os_file_sep()+".hashes" inserted
+	//after the backup root, so storing it duplicates the full path in every row.
+	//Returns the length of that root when hashpath is exactly that insertion, and
+	//std::string::npos when it is not -- which happens when escape_metadata_fn()
+	//rewrote the file name, and for any path shape this does not anticipate. The
+	//caller then stores the string, so correctness never rests on the derivation
+	//succeeding; only the saving does.
+	size_t hashpath_root_len(const std::string& fullpath, const std::string& hashpath)
+	{
+		const std::string ins = os_file_sep() + ".hashes";
+
+		if (hashpath.size() != fullpath.size() + ins.size())
+		{
+			return std::string::npos;
+		}
+
+		size_t pos = 0;
+		while ((pos = hashpath.find(ins, pos)) != std::string::npos)
+		{
+			if (hashpath.compare(0, pos, fullpath, 0, pos) == 0
+				&& hashpath.compare(pos + ins.size(), fullpath.size() - pos,
+					fullpath, pos, fullpath.size() - pos) == 0)
+			{
+				return pos;
+			}
+			++pos;
+		}
+
+		return std::string::npos;
+	}
+}
 
 /**
 * @-SQLGenTempSetup
@@ -251,19 +286,33 @@ ServerFilesDao::SStatFileEntry ServerFilesDao::getStatFileEntry(int64 id)
 * @-SQLGenAccess
 * @func void ServerFilesDao::addFileEntry
 * @sql
-*	   INSERT INTO files (backupid, fullpath, hashpath, shahash, filesize, rsize, clientid, incremental, next_entry, prev_entry, pointed_to)
-*      VALUES (:backupid(int), :fullpath(string), :hashpath(string), :shahash(blob),
+*	   INSERT INTO files (backupid, fullpath, hashpath_stored, hashroot_len, shahash, filesize, rsize, clientid, incremental, next_entry, prev_entry, pointed_to)
+*      VALUES (:backupid(int), :fullpath(string), :hashpath_stored(string), :hashroot_len(int), :shahash(blob),
 *				:filesize(int64), :rsize(int64), :clientid(int), :incremental(int), :next_entry(int64), :prev_entry(int64), :pointed_to(int))
 */
 void ServerFilesDao::addFileEntry(int backupid, const std::string& fullpath, const std::string& hashpath, const std::string& shahash, int64 filesize, int64 rsize, int clientid, int incremental, int64 next_entry, int64 prev_entry, int pointed_to)
 {
 	if(q_addFileEntry==NULL)
 	{
-		q_addFileEntry=db->Prepare("INSERT INTO files (backupid, fullpath, hashpath, shahash, filesize, rsize, clientid, incremental, next_entry, prev_entry, pointed_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", false);
+		q_addFileEntry=db->Prepare("INSERT INTO files (backupid, fullpath, hashpath_stored, hashroot_len, shahash, filesize, rsize, clientid, incremental, next_entry, prev_entry, pointed_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", false);
 	}
 	q_addFileEntry->Bind(backupid);
 	q_addFileEntry->Bind(fullpath);
-	q_addFileEntry->Bind(hashpath);
+	//The hashpath column is generated from fullpath and hashroot_len, so store only
+	//the root length when the hash path is the derivable one, and fall back to
+	//storing the string itself when it is not. Correctness never depends on the
+	//derivation being possible, only the saving does.
+	size_t hashroot_len = hashpath_root_len(fullpath, hashpath);
+	if(hashroot_len==std::string::npos)
+	{
+		q_addFileEntry->Bind(hashpath);
+		q_addFileEntry->Bind(0);
+	}
+	else
+	{
+		q_addFileEntry->Bind(std::string());
+		q_addFileEntry->Bind(static_cast<int>(hashroot_len));
+	}
 	q_addFileEntry->Bind(shahash.c_str(), (_u32)shahash.size());
 	q_addFileEntry->Bind(filesize);
 	q_addFileEntry->Bind(rsize);
