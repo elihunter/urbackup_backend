@@ -262,6 +262,26 @@ void read_config_file(std::string fn, std::vector<std::string>& real_args)
 			real_args.push_back("--sqlite_mmap_small");
 			real_args.push_back(strlower(val));
 		}
+		if (get_setting_value_with_env(settings.get(), "WAL_PASSIVE_CHECKPOINT_SIZE_FILES", val, true))
+		{
+			real_args.push_back("--wal_passive_checkpoint_size_files");
+			real_args.push_back(strlower(val));
+		}
+		if (get_setting_value_with_env(settings.get(), "WAL_FULL_CHECKPOINT_SIZE_FILES", val, true))
+		{
+			real_args.push_back("--wal_full_checkpoint_size_files");
+			real_args.push_back(strlower(val));
+		}
+		if (get_setting_value_with_env(settings.get(), "WAL_PASSIVE_CHECKPOINT_SIZE", val, true))
+		{
+			real_args.push_back("--wal_passive_checkpoint_size");
+			real_args.push_back(strlower(val));
+		}
+		if (get_setting_value_with_env(settings.get(), "WAL_FULL_CHECKPOINT_SIZE", val, true))
+		{
+			real_args.push_back("--wal_full_checkpoint_size");
+			real_args.push_back(strlower(val));
+		}
 		if (get_setting_value_with_env(settings.get(), "HTTP_PROXY", val, true))
 		{
 			real_args.push_back("--http_proxy");

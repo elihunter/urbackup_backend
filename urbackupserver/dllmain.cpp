@@ -337,25 +337,66 @@ void open_settings_database()
 	Server->attachToDatabase(aname, "settings_db", URBACKUPDB_SERVER);	
 }
 
+namespace
+{
+	//WAL checkpoint sizes in bytes. A passive checkpoint moves pages into the
+	//database without shrinking the WAL; only the full one truncates it, so the full
+	//size is what bounds the WAL on disk and in page cache.
+	//
+	//The defaults are what the server has always used and suit one large
+	//installation. A host running many small servers wants them lower: 1 GB of WAL
+	//allowance per files database is 1 GB it never gets back, multiplied by however
+	//many servers share the machine.
+	//
+	//Lower is not simply better. Checkpointing coalesces repeated writes to the same
+	//page into one database write, so checkpointing more often writes more in total.
+	//On flash that is the cost to weigh against the footprint.
+	int64 wal_checkpoint_size(const std::string& pname, int64 def)
+	{
+		std::string v = Server->getServerParameter(pname);
+		if (v.empty())
+		{
+			return def;
+		}
+
+		int64 mb = watoi64(v);
+		if (mb <= 0)
+		{
+			Server->Log("Ignoring " + pname + "=\"" + v + "\": expected a size in MiB "
+				"greater than zero. Using " + convert(def / (1024 * 1024)) + " MiB.", LL_WARNING);
+			return def;
+		}
+
+		return mb * 1024 * 1024;
+	}
+}
+
 void start_wal_checkpoint_threads()
 {
-	WalCheckpointThread* wal_checkpoint_thread = new WalCheckpointThread(100 * 1024 * 1024, 1000 * 1024 * 1024,
+	//files and links hold one row per stored file and churn hardest, so they get the
+	//larger allowance; the rest are small and are checkpointed sooner.
+	int64 passive_big = wal_checkpoint_size("wal_passive_checkpoint_size_files", 100 * 1024 * 1024);
+	int64 full_big = wal_checkpoint_size("wal_full_checkpoint_size_files", 1000 * 1024 * 1024);
+	int64 passive_small = wal_checkpoint_size("wal_passive_checkpoint_size", 10 * 1024 * 1024);
+	int64 full_small = wal_checkpoint_size("wal_full_checkpoint_size", 100 * 1024 * 1024);
+
+	WalCheckpointThread* wal_checkpoint_thread = new WalCheckpointThread(passive_big, full_big,
 		"urbackup" + os_file_sep() + "backup_server_files.db", URBACKUPDB_SERVER_FILES);
 	Server->createThread(wal_checkpoint_thread, "files checkpoint");
 
-	wal_checkpoint_thread = new WalCheckpointThread(10 * 1024 * 1024, 100 * 1024 * 1024,
+	wal_checkpoint_thread = new WalCheckpointThread(passive_small, full_small,
 		"urbackup" + os_file_sep() + "backup_server.db", URBACKUPDB_SERVER, "main");
 	Server->createThread(wal_checkpoint_thread, "main checkpoint");
 
-	wal_checkpoint_thread = new WalCheckpointThread(10 * 1024 * 1024, 100 * 1024 * 1024,
+	wal_checkpoint_thread = new WalCheckpointThread(passive_small, full_small,
 		"urbackup" + os_file_sep() + "backup_server_settings.db", URBACKUPDB_SERVER);
 	Server->createThread(wal_checkpoint_thread, "settings checkpoint");
 
-	wal_checkpoint_thread = new WalCheckpointThread(10 * 1024 * 1024, 100 * 1024 * 1024,
+	wal_checkpoint_thread = new WalCheckpointThread(passive_small, full_small,
 		"urbackup" + os_file_sep() + "backup_server_link_journal.db", URBACKUPDB_SERVER_LINK_JOURNAL);
 	Server->createThread(wal_checkpoint_thread, "lnk jour checkpoint");
 
-	wal_checkpoint_thread = new WalCheckpointThread(100 * 1024 * 1024, 1000 * 1024 * 1024,
+	wal_checkpoint_thread = new WalCheckpointThread(passive_big, full_big,
 		"urbackup" + os_file_sep() + "backup_server_links.db", URBACKUPDB_SERVER_LINKS);
 	Server->createThread(wal_checkpoint_thread, "lnk checkpoint");
 }
