@@ -32,6 +32,9 @@
 #include "dao/ServerBackupDao.h"
 #include "dao/ServerCleanupDao.h"
 #include "server.h"
+#ifdef __linux__
+#include <sys/xattr.h>
+#endif
 
 extern IFileServ* fileserv;
 
@@ -43,6 +46,108 @@ namespace
 
 	const _u32 ID_METADATA_V1_WIN = 1<<0 | 1<<3;
 	const _u32 ID_METADATA_V1_UNIX = 1<<2 | 1<<3;
+
+	const _u32 win_attribute_directory = 0x10;
+	const _u32 win_attribute_archive = 0x20;
+	const _u32 win_attribute_reparse_point = 0x400;
+	const _u32 win_attribute_encrypted = 0x4000;
+
+	std::string ntfs_xattr(const std::string& fn, const char* name)
+	{
+		std::string ret;
+#ifdef __linux__
+		//Size query first: ntfs-3g answers a too small buffer with the full length
+		//instead of ERANGE, which the kernel turns into EIO
+		ssize_t size = lgetxattr(fn.c_str(), name, NULL, 0);
+		if (size > 0)
+		{
+			ret.resize(size);
+			if (lgetxattr(fn.c_str(), name, &ret[0], ret.size()) != size)
+			{
+				ret.clear();
+			}
+		}
+#endif
+		return ret;
+	}
+
+	//Metadata of a file in a mounted image backup. Image backups have no .hashes store,
+	//so this builds the Windows metadata record the client applies on restore (the layout
+	//FileMetadataDownloadThread::applyWindowsMetadata stores for file backups) from what the
+	//mounted file system offers: attributes and timestamps, plus the security descriptor
+	//where ntfs-3g exposes it.
+	bool image_file_metadata(const std::string& fn, bool isdir, _u32& attributes, std::string* record)
+	{
+		if (os_get_file_type(os_file_prefix(fn)) == 0)
+		{
+			return false;
+		}
+
+		SFile file = getFileMetadata(os_file_prefix(fn));
+
+		int64 times[4]; //creation, last access, last write, change
+		std::string ntfs_times = ntfs_xattr(fn, "system.ntfs_times");
+		if (ntfs_times.size() == sizeof(times))
+		{
+			//ntfs-3g order: creation, last write, last access, change
+			const int64* t = reinterpret_cast<const int64*>(ntfs_times.data());
+			times[0] = little_endian(t[0]);
+			times[1] = little_endian(t[2]);
+			times[2] = little_endian(t[1]);
+			times[3] = little_endian(t[3]);
+		}
+		else
+		{
+			times[0] = os_to_windows_filetime(file.created);
+			times[1] = os_to_windows_filetime(file.accessed);
+			times[2] = os_to_windows_filetime(file.last_modified);
+			times[3] = times[2];
+		}
+
+		std::string ntfs_attrib = ntfs_xattr(fn, "system.ntfs_attrib");
+		if (ntfs_attrib.size() == sizeof(_u32))
+		{
+			attributes = little_endian(*reinterpret_cast<const _u32*>(ntfs_attrib.data()));
+		}
+		else
+		{
+			attributes = isdir ? win_attribute_directory : win_attribute_archive;
+		}
+
+		if (record == NULL)
+		{
+			return true;
+		}
+
+		CWData stat_data;
+		stat_data.addChar(1);
+		stat_data.addUInt(attributes);
+		for (size_t i = 0; i < 4; ++i)
+		{
+			stat_data.addVarInt(times[i]);
+		}
+
+		CWData data;
+		data.addInt64(0); //size, not read by the client
+		data.addBuffer(reinterpret_cast<const char*>(&win32_meta_magic), sizeof(win32_meta_magic));
+		data.addUInt(static_cast<_u32>(stat_data.getDataSize()));
+		data.addBuffer(stat_data.getDataPtr(), stat_data.getDataSize());
+
+		std::string acl = ntfs_xattr(fn, "system.ntfs_acl");
+		if (!acl.empty())
+		{
+			data.addChar(1);
+			data.addUInt(3); //BACKUP_SECURITY_DATA
+			data.addUInt(2); //STREAM_CONTAINS_SECURITY
+			data.addInt64(acl.size());
+			data.addUInt(0); //stream name size
+			data.addBuffer(acl.data(), acl.size());
+		}
+		data.addChar(0); //no more streams; the checksum is added by FileMetadataPipe
+
+		record->assign(data.getDataPtr(), data.getDataSize());
+		return true;
+	}
 
 	std::string reconstructOrigPath(const std::string& metadata_fn, bool isdir)
 	{
@@ -212,6 +317,63 @@ namespace
 		std::vector < std::pair<std::string, std::string> > map_paths;
 	};
 
+	//Metadata for a restore from a mounted image backup. basedir is the mounted folder
+	//being restored, orig_root the path it had on the client (e.g. "C:\Users").
+	class ImageMetadataCallback : public IFileServ::IMetadataCallback
+	{
+	public:
+		ImageMetadataCallback(const std::string& basedir, const std::string& orig_root)
+			: basedir(basedir), orig_root(orig_root)
+		{
+
+		}
+
+		virtual IFile* getMetadata(const std::string& path, std::string* orig_path, int64* offset,
+			int64* length, _u32* version, bool get_hashdata)
+		{
+			if (path.empty() || get_hashdata) return NULL;
+
+			std::string file_path = basedir;
+			std::string file_orig_path = orig_root;
+
+			std::vector<std::string> path_segments;
+			Tokenize(path.substr(1), path_segments, "/");
+
+			for (size_t i = 1; i < path_segments.size(); ++i)
+			{
+				if (path_segments[i] == "." || path_segments[i] == "..")
+				{
+					continue;
+				}
+
+				file_path += os_file_sep() + path_segments[i];
+				file_orig_path += "\\" + path_segments[i];
+			}
+
+			_u32 attributes;
+			std::string record;
+			if (!image_file_metadata(file_path, path[0] == 'd', attributes, &record))
+			{
+				Server->Log("Cannot read metadata of \"" + file_path + "\". " + os_last_error_str(), LL_ERROR);
+				return NULL;
+			}
+
+			IFile* metadata_file = Server->openMemoryFile();
+			metadata_file->Write(record);
+
+			if (orig_path != NULL) *orig_path = file_orig_path;
+			if (offset != NULL) *offset = 0;
+			if (length != NULL) *length = record.size();
+			if (version != NULL) *version = ID_METADATA_V1_WIN;
+
+			return metadata_file;
+		}
+
+	private:
+		std::string basedir;
+		std::string orig_root;
+	};
+
 	class ClientDownloadThread : public IThread
 	{
 	private:
@@ -230,14 +392,14 @@ namespace
 			const std::vector<std::pair<std::string, std::string> >& map_paths,
 			bool clean_other, bool ignore_other_fs, const std::string& share_path,
 			bool follow_symlinks, int64 restore_flags, const std::vector<std::string>& tokens, backupaccess::STokens access_tokens,
-			bool encrypt_identity)
+			bool encrypt_identity, const std::string& image_root)
 			: curr_clientname(curr_clientname), curr_clientid(curr_clientid), restore_clientid(restore_clientid),
 			filelist_f(filelist_f),
 			skip_special_root(skip_special_root),
 			restore_token(restore_token), identity(identity), restore_id(restore_id), status_id(status_id), log_id(log_id),
 			single_file(false), map_paths(map_paths), clean_other(clean_other), ignore_other_fs(ignore_other_fs),
 			curr_restore_folder_idx(0), follow_symlinks(follow_symlinks), restore_flags(restore_flags),
-			tokens(tokens), access_tokens(access_tokens), encrypt_identity(encrypt_identity)
+			tokens(tokens), access_tokens(access_tokens), encrypt_identity(encrypt_identity), image_root(image_root)
 		{
 			SRestoreFolder restore_folder;
 			restore_folder.foldername = foldername;
@@ -303,7 +465,15 @@ namespace
 			{
 				SRestoreFolder& restore_folder = restore_folders[i];
 
-				MetadataCallback* callback = new MetadataCallback(restore_folder.hashfoldername, map_paths);
+				IFileServ::IMetadataCallback* callback;
+				if (image_root.empty())
+				{
+					callback = new MetadataCallback(restore_folder.hashfoldername, map_paths);
+				}
+				else
+				{
+					callback = new ImageMetadataCallback(restore_folder.foldername, image_root);
+				}
 				fileserv->shareDir("clientdl"+convert(i), restore_folder.foldername, identity, false);
 				ClientMain::addShareToCleanup(curr_clientid, SShareCleanup("clientdl" + convert(i), identity, false, true));
 				fileserv->registerMetadataCallback("clientdl" + convert(i), identity, callback);
@@ -369,7 +539,7 @@ namespace
 				std::string metadataname = hashfoldername + os_file_sep() + escape_metadata_fn(file.name);
 				std::string filename = foldername + os_file_sep() + file.name;
 
-				if (file.issym)
+				if (file.issym && image_root.empty())
 				{
 					std::string pool_path;
 					if (os_get_symlink_target(filename, pool_path))
@@ -392,7 +562,7 @@ namespace
 				std::string metadatasource;
 				bool recurse_dir = false;
 				if(file.isdir && !file.issym
-					&& os_directory_exists(os_file_prefix(metadataname)) )
+					&& (!image_root.empty() || os_directory_exists(os_file_prefix(metadataname))) )
 				{
 					metadatasource = metadataname + os_file_sep()+metadata_dir_fn;
 					single_file = false;
@@ -406,7 +576,27 @@ namespace
 				bool has_metadata = false;
 
 				FileMetadata metadata;
-				if(!read_metadata(metadatasource, metadata))
+				if(!image_root.empty())
+				{
+					//Mounted image backup: no .hashes store. The metadata stream reads what the file
+					//system carries (ImageMetadataCallback); the file list only needs the original path.
+					//Reparse points cannot be recreated without their reparse data and encrypted files
+					//are unreadable on the mount, so both are left out.
+					_u32 attributes;
+					if(file.issym
+						|| !image_file_metadata(filename, file.isdir, attributes, NULL)
+						|| (attributes & (win_attribute_reparse_point | win_attribute_encrypted)) )
+					{
+						ServerLogger::Log(log_id, "Skipping \""+filename+"\": reparse point, encrypted or unreadable", LL_WARNING);
+						continue;
+					}
+
+					if(depth==0)
+					{
+						metadata.orig_path = image_root + "\\" + file.name;
+					}
+				}
+				else if(!read_metadata(metadatasource, metadata))
 				{
 					ServerLogger::Log(log_id, "Cannot read file metadata of file "+filename+" from "+ metadatasource +". Cannot start restore.", LL_ERROR);
 					return false;
@@ -627,6 +817,7 @@ namespace
 		std::vector<std::string> tokens;
 		backupaccess::STokens access_tokens;
 		bool encrypt_identity;
+		std::string image_root;
 	};
 }
 
@@ -635,7 +826,7 @@ bool create_clientdl_thread(const std::string& curr_clientname, int curr_clienti
 	const std::string& folder_log_name, int64& restore_id, size_t& status_id, logid_t& log_id, const std::string& restore_token,
 	const std::vector<std::pair<std::string, std::string> >& map_paths, bool clean_other, bool ignore_other_fs, const std::string& share_path,
 	bool follow_symlinks, int64 restore_flags, THREADPOOL_TICKET& ticket, const std::vector<std::string>& tokens, const backupaccess::STokens& access_tokens,
-	bool encrypt_identity)
+	bool encrypt_identity, const std::string& image_root)
 {
 	IFile* filelist_f = Server->openTemporaryFile();
 
@@ -680,7 +871,7 @@ bool create_clientdl_thread(const std::string& curr_clientname, int curr_clienti
 	ticket = Server->getThreadPool()->execute(new ClientDownloadThread(curr_clientname, curr_clientid, restore_clientid,
 		filelist_f, foldername, hashfoldername, filter, skip_hashes, folder_log_name, restore_id,
 		status_id, log_id, restore_token, identity, map_paths, clean_other, ignore_other_fs, share_path, follow_symlinks, 
-		restore_flags, tokens, access_tokens, encrypt_identity), "frestore preparation");
+		restore_flags, tokens, access_tokens, encrypt_identity, image_root), "frestore preparation");
 
 	return true;
 }

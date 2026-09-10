@@ -1722,6 +1722,7 @@ ACTION_IMPL(backups)
 						std::string backuppath;
 						backupaccess::SPathInfo path_info;
 						ScopedMountedImage mounted_image;
+						std::string image_root;
 						if (backupid >= 0)
 						{
 							backuppath = backupaccess::get_backup_path(db, backupid, t_clientid);
@@ -1735,7 +1736,7 @@ ACTION_IMPL(backups)
 							int partition = 0;
 							std::string path;
 							std::vector<IFSImageFactory::SPartition> partitions;
-							backupaccess::get_image_info(db, -1*backupid, t_clientid,
+							JSON::Object image_info = backupaccess::get_image_info(db, -1*backupid, t_clientid,
 								0, path, partitions);
 
 							if (partitions.size() > 1)
@@ -1758,6 +1759,19 @@ ACTION_IMPL(backups)
 							}
 							backuppath = ImageMount::get_mount_path(-1*backupid, t_clientid, partition, true, mounted_image, -1, has_mount_timeout, mount_errmsg);
 							path_info = backupaccess::get_image_path_info(u_path, clientname, backupfolder, backupid, backuppath);
+
+							//Where the restored files go on the client. Only Windows volume images: the restore
+							//thread builds Windows metadata from the mount (see ImageMetadataCallback)
+							JSON::Value letter = image_info.get("letter");
+							if (letter.getType() == JSON::str_type
+								&& letter.getString().size() == 2 && letter.getString()[1] == ':')
+							{
+								image_root = letter.getString();
+								if (!path_info.rel_path.empty())
+								{
+									image_root += "\\" + greplace(os_file_sep(), "\\", path_info.rel_path);
+								}
+							}
 						}
 
 						if( (token_authentication && !path_info.can_access_path)
@@ -1814,7 +1828,7 @@ ACTION_IMPL(backups)
 							if(!create_clientdl_thread(clientname, t_clientid, t_clientid, path_info.full_path, path_info.full_metadata_path, CURRP["filter"],
 								path_info.rel_path.empty(), path_info.rel_path, restore_id, status_id, log_id, std::string(),
 								std::vector< std::pair<std::string, std::string> >(), true, true, greplace(os_file_sep(), "/", path_info.rel_path), false,
-								restore_flags, ticket, tokens, path_info.backup_tokens, false))
+								restore_flags, ticket, tokens, path_info.backup_tokens, false, image_root))
 							{
 								ret.set("err", "internal_error");
                                 helper.Write(ret.stringify(false));
