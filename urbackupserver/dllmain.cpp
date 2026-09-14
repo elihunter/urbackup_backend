@@ -2526,6 +2526,21 @@ bool upgrade68_69()
 	return updateArchiveSettingsExternal(0, db);
 }
 
+bool upgrade69_70()
+{
+	IDatabase* db = Server->getDatabase(Server->getThreadID(), URBACKUPDB_SERVER);
+
+	//Bytes from the client over the connection, and before compression (0 if uncompressed)
+	if (!db->Write("ALTER TABLE backups ADD transferred_bytes INTEGER")
+		|| !db->Write("ALTER TABLE backups ADD transferred_bytes_real INTEGER"))
+	{
+		return false;
+	}
+
+	return db->Write("ALTER TABLE backup_images ADD transferred_bytes INTEGER")
+		&& db->Write("ALTER TABLE backup_images ADD transferred_bytes_real INTEGER");
+}
+
 void upgrade(void)
 {
 	Server->destroyAllDatabases();
@@ -2547,7 +2562,7 @@ void upgrade(void)
 	
 	int ver=watoi(res_v[0]["tvalue"]);
 	int old_v;
-	int max_v=69;
+	int max_v=70;
 	{
 		IScopedLock lock(startup_status.mutex);
 		startup_status.target_db_version=max_v;
@@ -2969,6 +2984,13 @@ void upgrade(void)
 				break;
 			case 68:
 				if (!upgrade68_69())
+				{
+					has_error = true;
+				}
+				++ver;
+				break;
+			case 69:
+				if (!upgrade69_70())
 				{
 					has_error = true;
 				}

@@ -854,6 +854,25 @@ void ServerBackupDao::updateFileBackupSetComplete(int backupid)
 
 /**
 * @-SQLGenAccess
+* @func void ServerBackupDao::setFileBackupTransferred
+* @sql
+*       UPDATE backups SET transferred_bytes=:transferred_bytes(int64), transferred_bytes_real=:transferred_bytes_real(int64) WHERE id=:backupid(int)
+*/
+void ServerBackupDao::setFileBackupTransferred(int64 transferred_bytes, int64 transferred_bytes_real, int backupid)
+{
+	if(q_setFileBackupTransferred==NULL)
+	{
+		q_setFileBackupTransferred=db->Prepare("UPDATE backups SET transferred_bytes=?, transferred_bytes_real=? WHERE id=?", false);
+	}
+	q_setFileBackupTransferred->Bind(transferred_bytes);
+	q_setFileBackupTransferred->Bind(transferred_bytes_real);
+	q_setFileBackupTransferred->Bind(backupid);
+	q_setFileBackupTransferred->Write();
+	q_setFileBackupTransferred->Reset();
+}
+
+/**
+* @-SQLGenAccess
 * @func void ServerBackupDao::saveBackupLog
 * @sql
 *       INSERT INTO logs (clientid, errors, warnings, infos, image, incremental, resumed, restore)
@@ -1120,6 +1139,25 @@ void ServerBackupDao::addImageSizeToClient(int clientid, int64 add_size)
 	q_addImageSizeToClient->Bind(clientid);
 	q_addImageSizeToClient->Write();
 	q_addImageSizeToClient->Reset();
+}
+
+/**
+* @-SQLGenAccess
+* @func void ServerBackupDao::setImageBackupTransferred
+* @sql
+*       UPDATE backup_images SET transferred_bytes=:transferred_bytes(int64), transferred_bytes_real=:transferred_bytes_real(int64) WHERE id=:backupid(int)
+*/
+void ServerBackupDao::setImageBackupTransferred(int64 transferred_bytes, int64 transferred_bytes_real, int backupid)
+{
+	if(q_setImageBackupTransferred==NULL)
+	{
+		q_setImageBackupTransferred=db->Prepare("UPDATE backup_images SET transferred_bytes=?, transferred_bytes_real=? WHERE id=?", false);
+	}
+	q_setImageBackupTransferred->Bind(transferred_bytes);
+	q_setImageBackupTransferred->Bind(transferred_bytes_real);
+	q_setImageBackupTransferred->Bind(backupid);
+	q_setImageBackupTransferred->Write();
+	q_setImageBackupTransferred->Reset();
 }
 
 /**
@@ -2085,6 +2123,7 @@ void ServerBackupDao::prepareQueries( void )
 	q_getLastIncrementalFileBackup=NULL;
 	q_getLastIncrementalCompleteFileBackup=NULL;
 	q_updateFileBackupSetComplete=NULL;
+	q_setFileBackupTransferred=NULL;
 	q_saveBackupLog=NULL;
 	q_saveBackupLogData=NULL;
 	q_getMailableUserIds=NULL;
@@ -2096,6 +2135,7 @@ void ServerBackupDao::prepareQueries( void )
 	q_newImageBackup=NULL;
 	q_setImageSize=NULL;
 	q_addImageSizeToClient=NULL;
+	q_setImageBackupTransferred=NULL;
 	q_setImageBackupSynctime=NULL;
 	q_setImageBackupComplete=NULL;
 	q_setImageBackupIncomplete=NULL;
@@ -2178,6 +2218,7 @@ void ServerBackupDao::destroyQueries( void )
 	db->destroyQuery(q_getLastIncrementalFileBackup);
 	db->destroyQuery(q_getLastIncrementalCompleteFileBackup);
 	db->destroyQuery(q_updateFileBackupSetComplete);
+	db->destroyQuery(q_setFileBackupTransferred);
 	db->destroyQuery(q_saveBackupLog);
 	db->destroyQuery(q_saveBackupLogData);
 	db->destroyQuery(q_getMailableUserIds);
@@ -2189,6 +2230,7 @@ void ServerBackupDao::destroyQueries( void )
 	db->destroyQuery(q_newImageBackup);
 	db->destroyQuery(q_setImageSize);
 	db->destroyQuery(q_addImageSizeToClient);
+	db->destroyQuery(q_setImageBackupTransferred);
 	db->destroyQuery(q_setImageBackupSynctime);
 	db->destroyQuery(q_setImageBackupComplete);
 	db->destroyQuery(q_setImageBackupIncomplete);

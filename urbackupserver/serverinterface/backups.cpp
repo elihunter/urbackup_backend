@@ -443,7 +443,7 @@ namespace backupaccess
 			last_filebackup = watoi(res_last[0]["id"]);
 		}
 
-		IQuery *q=db->Prepare("SELECT id, strftime('"+helper.getTimeFormatString()+"', backuptime) AS t_backuptime, incremental, size_bytes, archived, archive_timeout, path, delete_pending FROM backups WHERE complete=1 AND done=1 AND clientid=? ORDER BY backuptime DESC");
+		IQuery *q=db->Prepare("SELECT id, strftime('"+helper.getTimeFormatString()+"', backuptime) AS t_backuptime, incremental, size_bytes, transferred_bytes, transferred_bytes_real, archived, archive_timeout, path, delete_pending FROM backups WHERE complete=1 AND done=1 AND clientid=? ORDER BY backuptime DESC");
 		q->Bind(t_clientid);
 		db_results res=q->Read();
 		JSON::Array backups;
@@ -470,6 +470,8 @@ namespace backupaccess
 			obj.set("backuptime", watoi64(res[i]["t_backuptime"]));
 			obj.set("incremental", watoi(res[i]["incremental"]));
             obj.set("size_bytes", watoi64(res[i]["size_bytes"]));
+            obj.set("transferred_bytes", watoi64(res[i]["transferred_bytes"]));
+            obj.set("transferred_bytes_real", watoi64(res[i]["transferred_bytes_real"]));
             int archived = watoi(res[i]["archived"]);
             obj.set("archived", watoi(res[i]["archived"]));
 			if (res[i]["delete_pending"] == "1")
@@ -873,7 +875,7 @@ namespace backupaccess
 
 		Helper helper(Server->getThreadID(), NULL, NULL);
 
-		IQuery *q = db->Prepare("SELECT id, strftime('" + helper.getTimeFormatString() + "', backuptime) AS t_backuptime, incremental, size_bytes, archived, archive_timeout, path, letter, delete_pending FROM backup_images WHERE complete=1 AND clientid=? ORDER BY backuptime DESC");
+		IQuery *q = db->Prepare("SELECT id, strftime('" + helper.getTimeFormatString() + "', backuptime) AS t_backuptime, incremental, size_bytes, transferred_bytes, transferred_bytes_real, archived, archive_timeout, path, letter, delete_pending FROM backup_images WHERE complete=1 AND clientid=? ORDER BY backuptime DESC");
 		q->Bind(t_clientid);
 		db_results res = q->Read();
 		JSON::Array backups;
@@ -885,6 +887,8 @@ namespace backupaccess
 			obj.set("backuptime", watoi64(res[i]["t_backuptime"]));
 			obj.set("incremental", watoi(res[i]["incremental"]));
 			obj.set("size_bytes", watoi64(res[i]["size_bytes"]));
+			obj.set("transferred_bytes", watoi64(res[i]["transferred_bytes"]));
+			obj.set("transferred_bytes_real", watoi64(res[i]["transferred_bytes_real"]));
 			obj.set("letter", res[i]["letter"]);
 			int archived = watoi(res[i]["archived"]);
 			obj.set("archived", watoi(res[i]["archived"]));
@@ -917,7 +921,7 @@ namespace backupaccess
 		Helper helper(Server->getThreadID(), NULL, NULL);
 
 		IQuery *q = db->Prepare("SELECT id, strftime('" + helper.getTimeFormatString() + "', backuptime) AS t_backuptime, incremental, "
-			"size_bytes, archived, archive_timeout, path, letter FROM backup_images WHERE complete=1 AND clientid=? AND id=?");
+			"size_bytes, transferred_bytes, transferred_bytes_real, archived, archive_timeout, path, letter FROM backup_images WHERE complete=1 AND clientid=? AND id=?");
 		q->Bind(t_clientid);
 		q->Bind(backupid);
 		db_results res = q->Read();
@@ -929,6 +933,8 @@ namespace backupaccess
 			ret.set("backuptime", watoi64(res[0]["t_backuptime"]));
 			ret.set("incremental", watoi(res[0]["incremental"]));
 			ret.set("size_bytes", watoi64(res[0]["size_bytes"]));
+			ret.set("transferred_bytes", watoi64(res[0]["transferred_bytes"]));
+			ret.set("transferred_bytes_real", watoi64(res[0]["transferred_bytes_real"]));
 			ret.set("letter", res[0]["letter"]);
 			int archived = watoi(res[0]["archived"]);
 			ret.set("archived", watoi(res[0]["archived"]));

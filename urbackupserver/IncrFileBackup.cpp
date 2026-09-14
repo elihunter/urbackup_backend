@@ -1846,6 +1846,7 @@ bool IncrFileBackup::doFileBackup()
 	{
 		ServerLogger::Log(logid, "(Before compression: "+PrettyPrintBytes(transferred_compressed)+" ratio: "+convert((float)transferred_compressed/transferred_bytes)+")");
 	}
+	backup_dao->setFileBackupTransferred(transferred_bytes, transferred_compressed, backupid);
 	if (linked_bytes > 0)
 	{
 		ServerLogger::Log(logid, PrettyPrintBytes(linked_bytes) + " of files were already present on the server and did not need to be transferred", LL_INFO);

@@ -135,6 +135,7 @@ public:
 	SLastIncremental getLastIncrementalFileBackup(int clientid, int tgroup);
 	SLastIncremental getLastIncrementalCompleteFileBackup(int clientid, int tgroup);
 	void updateFileBackupSetComplete(int backupid);
+	void setFileBackupTransferred(int64 transferred_bytes, int64 transferred_bytes_real, int backupid);
 	void saveBackupLog(int clientid, int errors, int warnings, int infos, int image, int incremental, int resumed, int restore);
 	void saveBackupLogData(int64 logid, const std::string& data);
 	std::vector<int> getMailableUserIds(void);
@@ -146,6 +147,7 @@ public:
 	bool newImageBackup(int clientid, const std::string& path, int incremental, int incremental_ref, int image_version, const std::string& letter, int64 backuptime);
 	void setImageSize(int64 size_bytes, int backupid);
 	void addImageSizeToClient(int clientid, int64 add_size);
+	void setImageBackupTransferred(int64 transferred_bytes, int64 transferred_bytes_real, int backupid);
 	void setImageBackupSynctime(int backupid);
 	void setImageBackupComplete(int backupid);
 	void setImageBackupIncomplete(int backupid);
@@ -235,6 +237,7 @@ private:
 	IQuery* q_getLastIncrementalFileBackup;
 	IQuery* q_getLastIncrementalCompleteFileBackup;
 	IQuery* q_updateFileBackupSetComplete;
+	IQuery* q_setFileBackupTransferred;
 	IQuery* q_saveBackupLog;
 	IQuery* q_saveBackupLogData;
 	IQuery* q_getMailableUserIds;
@@ -246,6 +249,7 @@ private:
 	IQuery* q_newImageBackup;
 	IQuery* q_setImageSize;
 	IQuery* q_addImageSizeToClient;
+	IQuery* q_setImageBackupTransferred;
 	IQuery* q_setImageBackupSynctime;
 	IQuery* q_setImageBackupComplete;
 	IQuery* q_setImageBackupIncomplete;

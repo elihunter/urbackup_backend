@@ -1657,6 +1657,7 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 							if(passed_time==0) passed_time=1;
 
 							ServerLogger::Log(logid, "Transferred "+PrettyPrintBytes(transferred_bytes)+" - Average speed: "+PrettyPrintSpeed((size_t)((transferred_bytes*1000)/(passed_time)) ), LL_INFO );
+							backup_dao->setImageBackupTransferred(transferred_bytes, transferred_bytes_real, backupid);
 							if(transferred_bytes_real>0)
 							{
 								ServerLogger::Log(logid, "(Before compression: "+PrettyPrintBytes(transferred_bytes_real)+" ratio: "+convert((float)transferred_bytes_real/transferred_bytes)+")");
@@ -1894,6 +1895,10 @@ do_image_cleanup:
 	int64 passed_time=Server->getTimeMS()-image_backup_starttime;
 	if(passed_time==0) passed_time=1;
 	ServerLogger::Log(logid, "Transferred "+PrettyPrintBytes(transferred_bytes)+" - Average speed: "+PrettyPrintSpeed((size_t)((transferred_bytes*1000)/(passed_time) )), LL_INFO );
+	if(backupid>0)
+	{
+		backup_dao->setImageBackupTransferred(transferred_bytes, transferred_bytes_real, backupid);
+	}
 	if(transferred_bytes_real>0)
 	{
 		ServerLogger::Log(logid, "(Before compression: "+PrettyPrintBytes(transferred_bytes_real)+" ratio: "+convert((float)transferred_bytes_real/transferred_bytes)+")");
