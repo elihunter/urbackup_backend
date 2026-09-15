@@ -1613,6 +1613,16 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 									}									
 								}
 
+								//The raw file is a snapshot of the previous image; only its exclusive bytes are new
+								int64 exclusive;
+								if(image_file_format==image_file_format_cowraw
+									&& server_settings->getSettings()->filesystem_quota_stats
+									&& SnapshotHelper::getQuota(true, clientname, backuppath_single, exclusive))
+								{
+									ServerLogger::Log(logid, "Image backup uses "+PrettyPrintBytes(exclusive)+" of storage (filesystem quota)", LL_INFO);
+									image_size = exclusive;
+								}
+
 								db->BeginWriteTransaction();
 								backup_dao->setImageSize(image_size, backupid);
 								backup_dao->addImageSizeToClient(clientid, image_size);

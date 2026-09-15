@@ -111,6 +111,7 @@ struct SSettings
 	std::string local_image_transfer_mode;
 	std::string internet_image_transfer_mode;
 	size_t update_stats_cachesize;
+	bool filesystem_quota_stats;
 	std::string global_soft_fs_quota;
 	std::string client_quota;
 	bool end_to_end_file_backup_verification;

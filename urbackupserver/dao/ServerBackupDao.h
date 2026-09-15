@@ -135,6 +135,7 @@ public:
 	SLastIncremental getLastIncrementalFileBackup(int clientid, int tgroup);
 	SLastIncremental getLastIncrementalCompleteFileBackup(int clientid, int tgroup);
 	void updateFileBackupSetComplete(int backupid);
+	void setFileBackupSizeBytes(int64 size_bytes, int backupid);
 	void saveBackupLog(int clientid, int errors, int warnings, int infos, int image, int incremental, int resumed, int restore);
 	void saveBackupLogData(int64 logid, const std::string& data);
 	std::vector<int> getMailableUserIds(void);
@@ -235,6 +236,7 @@ private:
 	IQuery* q_getLastIncrementalFileBackup;
 	IQuery* q_getLastIncrementalCompleteFileBackup;
 	IQuery* q_updateFileBackupSetComplete;
+	IQuery* q_setFileBackupSizeBytes;
 	IQuery* q_saveBackupLog;
 	IQuery* q_saveBackupLogData;
 	IQuery* q_getMailableUserIds;

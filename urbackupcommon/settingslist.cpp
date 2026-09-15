@@ -246,6 +246,7 @@ std::vector<std::string> getGlobalSettingsList(void)
 	ret.push_back("use_tmpfiles_images");
 	ret.push_back("tmpdir");
 	ret.push_back("update_stats_cachesize");
+	ret.push_back("filesystem_quota_stats");
 	ret.push_back("global_soft_fs_quota");
 	ret.push_back("show_server_updates");
 	ret.push_back("server_url");

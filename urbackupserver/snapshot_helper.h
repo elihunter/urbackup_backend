@@ -1,4 +1,5 @@
 #include <string>
+#include "../Interface/Types.h"
 
 class SnapshotHelper
 {
@@ -11,6 +12,9 @@ public:
 	static void setSnapshotHelperCommand(std::string helper_command);
 	static bool makeReadonly(bool image, std::string clientname, std::string name);
 	static std::string getMountpoint(bool image, std::string clientname, std::string name);
+	//Exclusive bytes of the subvolume from the filesystem's quota accounting; false without accounting
+	static bool getQuota(bool image, std::string clientname, std::string name, int64& exclusive);
+
 private:
 
 #ifdef _WIN32

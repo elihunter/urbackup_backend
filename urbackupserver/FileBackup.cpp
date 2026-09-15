@@ -883,6 +883,14 @@ bool FileBackup::doBackup()
 	{
 		backup_dao->updateClientLastFileBackup(backupid, static_cast<int>(num_issues), clientid);
 		backup_dao->updateFileBackupSetComplete(backupid);
+
+		int64 exclusive;
+		if(use_snapshots && server_settings->getSettings()->filesystem_quota_stats
+			&& SnapshotHelper::getQuota(false, clientname, backuppath_single, exclusive))
+		{
+			ServerLogger::Log(logid, "Backup uses "+PrettyPrintBytes(exclusive)+" of storage (filesystem quota)", LL_INFO);
+			backup_dao->setFileBackupSizeBytes(exclusive, backupid);
+		}
 	}
 
 

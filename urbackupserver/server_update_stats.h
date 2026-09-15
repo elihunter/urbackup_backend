@@ -27,6 +27,7 @@ public:
 private:
 
 	void update_files(void);
+	void update_filesystem_quota(void);
 	void update_images(void);
 
 	void createQueries(void);

@@ -30,6 +30,7 @@
 #include "../Interface/DatabaseCursor.h"
 #include "create_files_index.h"
 #include "dao/ServerFilesDao.h"
+#include "snapshot_helper.h"
 #include <algorithm>
 
 ServerUpdateStats::ServerUpdateStats(bool image_repair_mode, bool interruptible)
@@ -111,6 +112,8 @@ void ServerUpdateStats::operator()(void)
 	if(!image_repair_mode)
 	{
 		update_files();
+
+		update_filesystem_quota();
 
 		q_create_hist->Write();
 		q_create_hist->Reset();
@@ -346,6 +349,63 @@ void ServerUpdateStats::update_files(void)
 	updateBackups(size_data_backups);
 
 	db->Write("UPDATE backups SET size_calculated=1 WHERE size_calculated=0 AND done=1");
+}
+
+void ServerUpdateStats::update_filesystem_quota(void)
+{
+	ServerSettings server_settings(db);
+
+	if(!server_settings.getSettings()->filesystem_quota_stats)
+	{
+		return;
+	}
+
+	//A subvolume's exclusive bytes are what it brought into existence itself, so the sums are the real usage
+	std::map<int, _i64> client_sizes;
+	std::map<int, _i64> client_image_sizes;
+	size_t num_read=0;
+	int64 exclusive;
+
+	db_results res=db->Read("SELECT b.id AS id, b.clientid AS clientid, b.path AS path, c.name AS name "
+		"FROM backups b INNER JOIN clients c ON b.clientid=c.id WHERE b.done=1 AND b.complete=1");
+	for(size_t i=0;i<res.size();++i)
+	{
+		if(SnapshotHelper::getQuota(false, res[i]["name"], res[i]["path"], exclusive))
+		{
+			++num_read;
+			backupdao->setFileBackupSizeBytes(exclusive, watoi(res[i]["id"]));
+			client_sizes[watoi(res[i]["clientid"])]+=exclusive;
+		}
+	}
+
+	//An image's subvolume is the directory holding the image file
+	res=db->Read("SELECT b.id AS id, b.clientid AS clientid, b.path AS path, c.name AS name "
+		"FROM backup_images b INNER JOIN clients c ON b.clientid=c.id WHERE b.complete=1");
+	for(size_t i=0;i<res.size();++i)
+	{
+		if(SnapshotHelper::getQuota(true, res[i]["name"], ExtractFileName(ExtractFilePath(res[i]["path"])), exclusive))
+		{
+			++num_read;
+			backupdao->setImageSize(exclusive, watoi(res[i]["id"]));
+			client_image_sizes[watoi(res[i]["clientid"])]+=exclusive;
+		}
+	}
+
+	if(num_read==0)
+	{
+		Server->Log("No filesystem quota accounting on the backup storage. Statistics left as calculated.", LL_WARNING);
+		return;
+	}
+
+	Server->Log("Updated statistics of "+convert(num_read)+" backups from filesystem quota accounting.", LL_INFO);
+	updateSizes(client_sizes);
+	for(std::map<int, _i64>::iterator it=client_image_sizes.begin();it!=client_image_sizes.end();++it)
+	{
+		q_update_images_size->Bind(it->second);
+		q_update_images_size->Bind(it->first);
+		q_update_images_size->Write();
+		q_update_images_size->Reset();
+	}
 }
 
 std::map<int, _i64> ServerUpdateStats::getFilebackupSizesClients(void)

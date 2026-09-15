@@ -854,6 +854,24 @@ void ServerBackupDao::updateFileBackupSetComplete(int backupid)
 
 /**
 * @-SQLGenAccess
+* @func void ServerBackupDao::setFileBackupSizeBytes
+* @sql
+*       UPDATE backups SET size_bytes=:size_bytes(int64) WHERE id=:backupid(int)
+*/
+void ServerBackupDao::setFileBackupSizeBytes(int64 size_bytes, int backupid)
+{
+	if(q_setFileBackupSizeBytes==NULL)
+	{
+		q_setFileBackupSizeBytes=db->Prepare("UPDATE backups SET size_bytes=? WHERE id=?", false);
+	}
+	q_setFileBackupSizeBytes->Bind(size_bytes);
+	q_setFileBackupSizeBytes->Bind(backupid);
+	q_setFileBackupSizeBytes->Write();
+	q_setFileBackupSizeBytes->Reset();
+}
+
+/**
+* @-SQLGenAccess
 * @func void ServerBackupDao::saveBackupLog
 * @sql
 *       INSERT INTO logs (clientid, errors, warnings, infos, image, incremental, resumed, restore)
@@ -2085,6 +2103,7 @@ void ServerBackupDao::prepareQueries( void )
 	q_getLastIncrementalFileBackup=NULL;
 	q_getLastIncrementalCompleteFileBackup=NULL;
 	q_updateFileBackupSetComplete=NULL;
+	q_setFileBackupSizeBytes=NULL;
 	q_saveBackupLog=NULL;
 	q_saveBackupLogData=NULL;
 	q_getMailableUserIds=NULL;
@@ -2178,6 +2197,7 @@ void ServerBackupDao::destroyQueries( void )
 	db->destroyQuery(q_getLastIncrementalFileBackup);
 	db->destroyQuery(q_getLastIncrementalCompleteFileBackup);
 	db->destroyQuery(q_updateFileBackupSetComplete);
+	db->destroyQuery(q_setFileBackupSizeBytes);
 	db->destroyQuery(q_saveBackupLog);
 	db->destroyQuery(q_saveBackupLogData);
 	db->destroyQuery(q_getMailableUserIds);

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include "../stringtools.h"
 #include "../urbackupcommon/os_functions.h"
 #include <stdlib.h>
@@ -417,6 +418,42 @@ bool is_subvolume(int mode, std::string subvolume_folder)
 #endif
 }
 
+bool get_quota(int mode, std::string subvolume_folder)
+{
+#ifdef _WIN32
+	return false;
+#else
+	if(mode!=mode_btrfs)
+	{
+		return false;
+	}
+
+	std::string data;
+	if(exec_wait(find_btrfs_cmd(), data, "qgroup", "show", "--raw", "-f", subvolume_folder.c_str(), NULL)!=0)
+	{
+		return false;
+	}
+
+	//Table with two header lines; the subvolume's row is "0/<id> <referenced> <exclusive> ..."
+	std::vector<std::string> lines;
+	Tokenize(data, lines, "\n");
+	for(size_t i=0;i<lines.size();++i)
+	{
+		std::vector<std::string> cols;
+		Tokenize(lines[i], cols, " \t");
+		cols.erase(std::remove(cols.begin(), cols.end(), std::string()), cols.end());
+
+		if(cols.size()>=3 && cols[0].compare(0, 2, "0/")==0)
+		{
+			std::cout << cols[1] << " " << cols[2] << std::endl;
+			return true;
+		}
+	}
+
+	return false;
+#endif
+}
+
 bool remove_subvolume(int mode, std::string subvolume_folder, bool quiet=false)
 {
 #ifdef _WIN32
@@ -671,6 +708,21 @@ int main(int argc, char *argv[])
 		std::string subvolume_dst_folder=backupfolder+os_file_sep()+clientname+os_file_sep()+dst_name;
 
 		return create_snapshot(mode, subvolume_src_folder, subvolume_dst_folder)?0:1;
+	}
+	else if(cmd=="quota")
+	{
+		if(argc<5)
+		{
+			std::cout << "Not enough parameters for quota" << std::endl;
+			return 1;
+		}
+
+		std::string clientname=handleFilename(argv[3]);
+		std::string name=handleFilename(argv[4]);
+
+		std::string subvolume_folder=backupfolder+os_file_sep()+clientname+os_file_sep()+name;
+
+		return get_quota(mode, subvolume_folder)?0:1;
 	}
 	else if(cmd=="remove")
 	{

@@ -334,6 +334,7 @@ void ServerSettings::readSettingsDefault(ISettingsReader* settings_default,
 		settings->use_tmpfiles_images = (settings_global->getValue("use_tmpfiles_images", "false") == "true");
 		settings->tmpdir = settings_global->getValue("tmpdir", "");
 		settings->update_stats_cachesize = static_cast<size_t>(settings_global->getValue("update_stats_cachesize", 200 * 1024));
+		settings->filesystem_quota_stats = (settings_global->getValue("filesystem_quota_stats", "false") == "true");
 		settings->global_soft_fs_quota = settings_global->getValue("global_soft_fs_quota", "95%");
 		settings->use_incremental_symlinks = (settings_global->getValue("use_incremental_symlinks", "true") == "true");
 		settings->show_server_updates = (settings_global->getValue("show_server_updates", "true") == "true");

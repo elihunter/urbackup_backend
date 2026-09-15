@@ -127,6 +127,30 @@ std::string SnapshotHelper::getMountpoint(bool image, std::string clientname, st
 	return trim(ret);
 }
 
+bool SnapshotHelper::getQuota(bool image, std::string clientname, std::string name, int64& exclusive)
+{
+#ifdef _WIN32
+	return false;
+#else
+	std::string ret;
+	if(os_popen(helper_name+" "+convert(BackupServer::getSnapshotMethod(image))+" quota \""+clientname+"\" \""+name+"\" 2>/dev/null", ret)!=0)
+	{
+		return false;
+	}
+
+	std::vector<std::string> toks;
+	Tokenize(trim(ret), toks, " ");
+	if(toks.size()<2)
+	{
+		return false;
+	}
+
+	//A subvolume from before quotas were enabled stays at 0/0; an accounted one references at least its metadata
+	exclusive = os_atoi64(toks[1]);
+	return os_atoi64(toks[0])!=0 || exclusive!=0;
+#endif
+}
+
 #ifdef _WIN32
 
 namespace
