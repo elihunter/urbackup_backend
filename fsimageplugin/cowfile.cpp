@@ -22,6 +22,8 @@
 #ifndef __APPLE__
 #include "cowfile.h"
 #include "../Interface/Server.h"
+#include <algorithm>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #ifndef _WIN32
@@ -574,7 +576,7 @@ void CowFile::setBitmapBit(uint64 offset, bool v)
 
 bool CowFile::saveBitmap()
 {
-	std::auto_ptr<IFile> bitmap_file(Server->openFile(filename+".bitmap", MODE_WRITE));
+	std::auto_ptr<IFsFile> bitmap_file(Server->openFile(filename+".bitmap", MODE_RW_CREATE));
 
 	if(!bitmap_file.get())
 	{
@@ -582,7 +584,26 @@ bool CowFile::saveBitmap()
 		return false;
 	}
 
-	if(bitmap_file->Write(reinterpret_cast<const char*>(bitmap.data()), static_cast<_u32>(bitmap.size()))!=bitmap.size())
+	//Usually the parent's copy (snapshot/reflink); rewriting equal pages would only unshare them
+	const size_t page=4096;
+	std::vector<char> cur(page);
+	for(size_t off=0; off<bitmap.size(); off+=page)
+	{
+		_u32 len=static_cast<_u32>((std::min)(page, bitmap.size()-off));
+		if(bitmap_file->Read(static_cast<int64>(off), cur.data(), len)==len
+			&& memcmp(cur.data(), &bitmap[off], len)==0)
+		{
+			continue;
+		}
+
+		if(bitmap_file->Write(static_cast<int64>(off), reinterpret_cast<const char*>(&bitmap[off]), len)!=len)
+		{
+			return false;
+		}
+	}
+
+	if(bitmap_file->Size()>static_cast<int64>(bitmap.size())
+		&& !bitmap_file->Resize(static_cast<int64>(bitmap.size()), false))
 	{
 		return false;
 	}

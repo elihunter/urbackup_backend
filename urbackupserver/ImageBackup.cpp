@@ -25,6 +25,7 @@
 #include "../fsimageplugin/IVHDFile.h"
 #include "../fsimageplugin/IFSImageFactory.h"
 #include "server_writer.h"
+#include "InPlaceFile.h"
 #include "zero_hash.h"
 #include "server_running.h"
 #include "../md5.h"
@@ -1104,16 +1105,21 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 						goto do_image_cleanup;
 					}
 
-					hashfile=Server->openFile(os_file_prefix(imagefn+".hash"), MODE_WRITE);
+					//Both sidecars may still be the parent's copy (cowraw snapshot), so write them in place
+					{
+						IFsFile* hashfile_raw = Server->openFile(os_file_prefix(imagefn+".hash"), MODE_RW_CREATE);
+						if(hashfile_raw!=NULL) hashfile = new InPlaceFile(hashfile_raw);
+					}
 					if(hashfile==NULL)
 					{
 						ServerLogger::Log(logid, "Error opening Hashfile \""+imagefn+".hash\"", LL_ERROR);
 						goto do_image_cleanup;
 					}
-					
+
 					if(transfer_bitmap)
 					{
-						bitmap_file.reset(Server->openFile(os_file_prefix(imagefn+".cbitmap"), MODE_RW_CREATE));
+						IFsFile* bitmap_file_raw = Server->openFile(os_file_prefix(imagefn+".cbitmap"), MODE_RW_CREATE);
+						if(bitmap_file_raw!=NULL) bitmap_file.reset(new InPlaceFile(bitmap_file_raw));
 						if(bitmap_file.get()==NULL)
 						{
 							ServerLogger::Log(logid, "Error opening bitmap file \""+imagefn+".cbitmap\"", LL_ERROR);
@@ -2379,6 +2385,10 @@ std::string ImageBackup::constructImagePath(const std::string &letter, std::stri
 					+ imgpath + ".bitmap\". " + os_last_error_str(), LL_ERROR);
 				return std::string();
 			}
+
+			//Best effort: without these the sidecars are simply written from scratch
+			os_create_hardlink(imgpath + ".hash", pParentvhd + ".hash", true, NULL);
+			os_create_hardlink(imgpath + ".cbitmap", pParentvhd + ".cbitmap", true, NULL);
 		}
 		else
 		{
@@ -2430,11 +2440,12 @@ std::string ImageBackup::constructImagePath(const std::string &letter, std::stri
 					}
 				}
 
-				Server->deleteFile(image_folder + os_file_sep() + parent_fn + ".hash");
-				Server->deleteFile(image_folder + os_file_sep() + parent_fn + ".cbitmap");
 				Server->deleteFile(image_folder + os_file_sep() + parent_fn + ".mbr");
 				Server->deleteFile(image_folder + os_file_sep() + parent_fn + ".sync");
+				//Kept and written in place so unchanged pages stay shared with the parent
 				os_rename_file(image_folder + os_file_sep() + parent_fn + ".bitmap", imgpath + ".bitmap");
+				os_rename_file(image_folder + os_file_sep() + parent_fn + ".hash", imgpath + ".hash");
+				os_rename_file(image_folder + os_file_sep() + parent_fn + ".cbitmap", imgpath + ".cbitmap");
 				if (!os_rename_file(image_folder + os_file_sep() + parent_fn, imgpath))
 				{
 					ServerLogger::Log(logid, "Error renaming in snapshot (\"" + image_folder + os_file_sep() + parent_fn + "\" to \"" + imgpath + "\")", LL_ERROR);
