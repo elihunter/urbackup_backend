@@ -1158,6 +1158,23 @@ void ServerBackupDao::setImageBackupComplete(int backupid)
 
 /**
 * @-SQLGenAccess
+* @func void ServerBackupDao::deleteImageBackup
+* @sql
+*       DELETE FROM backup_images WHERE id=:backupid(int)
+*/
+void ServerBackupDao::deleteImageBackup(int backupid)
+{
+	if(q_deleteImageBackup==NULL)
+	{
+		q_deleteImageBackup=db->Prepare("DELETE FROM backup_images WHERE id=?", false);
+	}
+	q_deleteImageBackup->Bind(backupid);
+	q_deleteImageBackup->Write();
+	q_deleteImageBackup->Reset();
+}
+
+/**
+* @-SQLGenAccess
 * @func void ServerBackupDao::setImageBackupIncomplete
 * @sql
 *       UPDATE backup_images SET complete=0 WHERE id=:backupid(int)
@@ -2098,6 +2115,7 @@ void ServerBackupDao::prepareQueries( void )
 	q_addImageSizeToClient=NULL;
 	q_setImageBackupSynctime=NULL;
 	q_setImageBackupComplete=NULL;
+	q_deleteImageBackup=NULL;
 	q_setImageBackupIncomplete=NULL;
 	q_updateImageBackupRunning=NULL;
 	q_saveImageAssociation=NULL;
@@ -2191,6 +2209,7 @@ void ServerBackupDao::destroyQueries( void )
 	db->destroyQuery(q_addImageSizeToClient);
 	db->destroyQuery(q_setImageBackupSynctime);
 	db->destroyQuery(q_setImageBackupComplete);
+	db->destroyQuery(q_deleteImageBackup);
 	db->destroyQuery(q_setImageBackupIncomplete);
 	db->destroyQuery(q_updateImageBackupRunning);
 	db->destroyQuery(q_saveImageAssociation);

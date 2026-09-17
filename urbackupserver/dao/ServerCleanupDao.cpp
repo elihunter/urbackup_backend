@@ -846,6 +846,49 @@ std::vector<int> ServerCleanupDao::getAssocImageBackupsReverse(int assoc_id)
 	return ret;
 }
 
+/**
+* @-SQLGenAccess
+* @func vector<int> ServerCleanupDao::getLiveParentImageBackups
+* @return int img_id
+* @sql
+*	SELECT img_id FROM assoc_images WHERE assoc_id=:assoc_id(int) AND img_id IN (SELECT id FROM backup_images)
+*/
+std::vector<int> ServerCleanupDao::getLiveParentImageBackups(int assoc_id)
+{
+	if(q_getLiveParentImageBackups==NULL)
+	{
+		q_getLiveParentImageBackups=db->Prepare("SELECT img_id FROM assoc_images WHERE assoc_id=? AND img_id IN (SELECT id FROM backup_images)", false);
+	}
+	q_getLiveParentImageBackups->Bind(assoc_id);
+	db_results res=q_getLiveParentImageBackups->Read();
+	q_getLiveParentImageBackups->Reset();
+	std::vector<int> ret;
+	ret.resize(res.size());
+	for(size_t i=0;i<res.size();++i)
+	{
+		ret[i]=watoi(res[i]["img_id"]);
+	}
+	return ret;
+}
+
+/**
+* @-SQLGenAccess
+* @func void ServerCleanupDao::removeImageAssoc
+* @sql
+*	DELETE FROM assoc_images WHERE img_id=:backupid(int) OR assoc_id=:backupid(int)
+*/
+void ServerCleanupDao::removeImageAssoc(int backupid)
+{
+	if(q_removeImageAssoc==NULL)
+	{
+		q_removeImageAssoc=db->Prepare("DELETE FROM assoc_images WHERE img_id=? OR assoc_id=?", false);
+	}
+	q_removeImageAssoc->Bind(backupid);
+	q_removeImageAssoc->Bind(backupid);
+	q_removeImageAssoc->Write();
+	q_removeImageAssoc->Reset();
+}
+
 
 /**
 * @-SQLGenAccess
@@ -1318,6 +1361,8 @@ void ServerCleanupDao::createQueries(void)
 	q_getImageArchived=NULL;
 	q_getAssocImageBackups=NULL;
 	q_getAssocImageBackupsReverse=NULL;
+	q_getLiveParentImageBackups=NULL;
+	q_removeImageAssoc=NULL;
 	q_getImageSize=NULL;
 	q_getClients=NULL;
 	q_getFileBackupsOfClient=NULL;
@@ -1372,6 +1417,8 @@ void ServerCleanupDao::destroyQueries(void)
 	db->destroyQuery(q_getImageArchived);
 	db->destroyQuery(q_getAssocImageBackups);
 	db->destroyQuery(q_getAssocImageBackupsReverse);
+	db->destroyQuery(q_getLiveParentImageBackups);
+	db->destroyQuery(q_removeImageAssoc);
 	db->destroyQuery(q_getImageSize);
 	db->destroyQuery(q_getClients);
 	db->destroyQuery(q_getFileBackupsOfClient);

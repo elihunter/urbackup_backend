@@ -73,6 +73,7 @@ protected:
 	bool not_found;
 
 	int backupid;
+	int parent_backupid;
 
 	std::string backuppath_single;
 

@@ -13,7 +13,7 @@ class InPlaceFile : public IFile
 {
 public:
 	explicit InPlaceFile(IFsFile* file)
-		: file(file), pos(0), high_water(0)
+		: file(file), pos(0), high_water(0), written_bytes(0)
 	{
 	}
 
@@ -82,7 +82,9 @@ public:
 			return bsize;
 		}
 
-		return file->Write(spos, buffer, bsize, has_error);
+		_u32 w = file->Write(spos, buffer, bsize, has_error);
+		written_bytes += w;
+		return w;
 	}
 
 	virtual bool Seek(_i64 spos)
@@ -116,9 +118,16 @@ public:
 		return file->getFilename();
 	}
 
+	//Bytes that really went to disk; zero means the file still equals the parent's copy
+	int64 written() const
+	{
+		return written_bytes;
+	}
+
 private:
 	IFsFile* file;
 	int64 pos;
 	int64 high_water;
+	int64 written_bytes;
 	std::vector<char> cmp;
 };

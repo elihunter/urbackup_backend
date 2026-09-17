@@ -120,6 +120,8 @@ public:
 	CondInt getImageArchived(int backupid);
 	std::vector<int> getAssocImageBackups(int img_id);
 	std::vector<int> getAssocImageBackupsReverse(int assoc_id);
+	std::vector<int> getLiveParentImageBackups(int assoc_id);
+	void removeImageAssoc(int backupid);
 	CondInt64 getImageSize(int backupid);
 	std::vector<SClientInfo> getClients(void);
 	std::vector<SFileBackupInfo> getFileBackupsOfClient(int clientid);
@@ -178,6 +180,8 @@ private:
 	IQuery* q_getImageArchived;
 	IQuery* q_getAssocImageBackups;
 	IQuery* q_getAssocImageBackupsReverse;
+	IQuery* q_getLiveParentImageBackups;
+	IQuery* q_removeImageAssoc;
 	IQuery* q_getImageSize;
 	IQuery* q_getClients;
 	IQuery* q_getFileBackupsOfClient;

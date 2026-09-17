@@ -148,6 +148,7 @@ public:
 	void addImageSizeToClient(int clientid, int64 add_size);
 	void setImageBackupSynctime(int backupid);
 	void setImageBackupComplete(int backupid);
+	void deleteImageBackup(int backupid);
 	void setImageBackupIncomplete(int backupid);
 	void updateImageBackupRunning(int backupid);
 	void saveImageAssociation(int img_id, int assoc_id);
@@ -248,6 +249,7 @@ private:
 	IQuery* q_addImageSizeToClient;
 	IQuery* q_setImageBackupSynctime;
 	IQuery* q_setImageBackupComplete;
+	IQuery* q_deleteImageBackup;
 	IQuery* q_setImageBackupIncomplete;
 	IQuery* q_updateImageBackupRunning;
 	IQuery* q_saveImageAssociation;

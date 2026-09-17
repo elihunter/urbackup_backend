@@ -114,7 +114,7 @@ ImageBackup::ImageBackup(ClientMain* client_main, int clientid, std::string clie
 	std::string clientsubname, LogAction log_action, bool incremental, std::string letter, std::string server_token, std::string details,
 	bool set_complete, int64 snapshot_id, std::string snapshot_group_loginfo, int64 backup_starttime, bool scheduled)
 	: Backup(client_main, clientid, clientname, clientsubname, log_action, false, incremental, server_token, details, scheduled),
-	pingthread_ticket(ILLEGAL_THREADPOOL_TICKET), letter(letter), synthetic_full(false), backupid(0), not_found(false),
+	pingthread_ticket(ILLEGAL_THREADPOOL_TICKET), letter(letter), synthetic_full(false), backupid(0), parent_backupid(0), not_found(false),
 	set_complete(set_complete), snapshot_id(snapshot_id), mutex(Server->createMutex()),
 	snapshot_group_loginfo(snapshot_group_loginfo), backup_starttime(backup_starttime)
 {
@@ -282,6 +282,7 @@ bool ImageBackup::doBackup()
 		}
 		else
 		{
+			parent_backupid = last.incremental_ref;
 			ret = doImage(letter, last.path, last.incremental+1,
 				cowraw_format?0:last.incremental_ref, image_hashed_transfer, server_settings->getImageFileFormat(),
 				client_main->getProtocolVersions().client_bitmap_version>0,
@@ -359,6 +360,10 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 	}
 
 	std::string imagefn;
+	//A SYSVOL/ESP incremental that turns out identical to its parent is dropped and the parent stands as this point
+	bool skip_unchanged = false;
+	InPlaceFile* hashfile_inplace = NULL;
+	int64 sidecar_written = 0;
 	bool fatal_mbr_error;
 	std::string loadfn;
 	bool disk_backup = false;
@@ -398,6 +403,14 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 			{
 				ServerLogger::Log(logid, "Error writing mbr data. " + os_last_error_str(), LL_ERROR);
 				return false;
+			}
+
+			if ((pLetter == "SYSVOL" || pLetter == "ESP")
+				&& parent_backupid > 0
+				&& image_file_format == image_file_format_cowraw)
+			{
+				std::auto_ptr<IFile> parent_mbr(Server->openFile(os_file_prefix(pParentvhd + ".mbr"), MODE_READ));
+				skip_unchanged = parent_mbr.get() != NULL && readToString(parent_mbr.get()) == mbrd;
 			}
 		}
 		else
@@ -1108,7 +1121,7 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 					//Both sidecars may still be the parent's copy (cowraw snapshot), so write them in place
 					{
 						IFsFile* hashfile_raw = Server->openFile(os_file_prefix(imagefn+".hash"), MODE_RW_CREATE);
-						if(hashfile_raw!=NULL) hashfile = new InPlaceFile(hashfile_raw);
+						if(hashfile_raw!=NULL) hashfile = hashfile_inplace = new InPlaceFile(hashfile_raw);
 					}
 					if(hashfile==NULL)
 					{
@@ -1370,6 +1383,7 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 					sha256_init(&shactx);
 					transfer_state = ETransferState_Image;
 					transfer_bitmap = false;
+					if (bitmap_file.get() != NULL) sidecar_written += static_cast<InPlaceFile*>(bitmap_file.get())->written();
 					bitmap_file.reset();
 				}
 				else
@@ -1587,7 +1601,23 @@ bool ImageBackup::doImage(const std::string &pLetter, const std::string &pParent
 								vhdfile=NULL;
 							}
 
+							if (hashfile_inplace != NULL) sidecar_written += hashfile_inplace->written();
 							if(hashfile!=NULL) Server->destroy(hashfile);
+							hashfile=NULL;
+
+							if (!vhdfile_err && skip_unchanged && numblocks == 0 && sidecar_written == 0)
+							{
+								ServerLogger::Log(logid, "Image of " + pLetter + " is identical to the previous one. The previous image stands for this backup.", LL_INFO);
+								if (ServerCleanupThread::deleteImage(logid, clientname, imagefn))
+								{
+									backup_dao->deleteImageBackup(backupid);
+									backupid = parent_backupid;
+									running_updater->stop();
+									runPostBackupScript(true, pParentvhd, pLetter, true);
+									return true;
+								}
+								ServerLogger::Log(logid, "Could not remove the identical image at " + imagefn + ". Keeping it.", LL_WARNING);
+							}
 
 							IFile *t_file=Server->openFile(os_file_prefix(imagefn), MODE_READ);
 							if(t_file!=NULL)

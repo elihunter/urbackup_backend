@@ -1135,6 +1135,12 @@ bool ServerCleanupThread::removeImage(int backupid, ServerSettings* settings,
 		std::vector<int> assoc=cleanupdao->getAssocImageBackups(backupid);
 		for(size_t i=0;i<assoc.size();++i)
 		{
+			//An unchanged SYSVOL/ESP image stands for several image backups; the last of them takes it along
+			if(cleanupdao->getLiveParentImageBackups(assoc[i]).size()>1)
+			{
+				ServerLogger::Log(logid, "Keeping associated image backup ( id="+convert(assoc[i])+" ): other image backups still use it", LL_DEBUG);
+				continue;
+			}
 			int64 is=getImageSize(assoc[i]);
 			if(is>0) deleted_size_bytes+=is;
 			removeImage(assoc[i], settings, false, force_remove, remove_associated,
@@ -1161,6 +1167,7 @@ bool ServerCleanupThread::removeImage(int backupid, ServerSettings* settings,
 		{
 			db->BeginWriteTransaction();
 			cleanupdao->removeImage(backupid);
+			cleanupdao->removeImageAssoc(backupid);
 			cleanupdao->removeImageSize(backupid);
 			db->EndTransaction();
 		}
@@ -2506,7 +2513,7 @@ void ServerCleanupThread::cleanup_system_images(int clientid, std::string client
 		if (res_image_backups[j].letter == "SYSVOL"
 			|| res_image_backups[j].letter == "ESP")
 		{
-			if (!cleanupdao->getParentImageBackup(res_image_backups[j].id).exists
+			if (cleanupdao->getLiveParentImageBackups(res_image_backups[j].id).empty()
 				&& !isImageLockedFromCleanup(res_image_backups[j].id) )
 			{
 				ServerLogger::Log(logid, "Image backup [id=" + convert(res_image_backups[j].id) + " path="
